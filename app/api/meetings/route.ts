@@ -1,0 +1,32 @@
+import { createServerSupabaseClient } from '@/lib/supabase-server'
+import { NextResponse } from 'next/server'
+
+export async function POST(req: Request) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase.from('profiles').select('plan').eq('id', user.id).single()
+  if (profile?.plan === 'free') {
+    const { count } = await supabase.from('meetings').select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
+    if ((count ?? 0) >= 5) return NextResponse.json({ error: 'Free limit reached' }, { status: 403 })
+  }
+
+  const body = await req.json()
+  const { data, error } = await supabase.from('meetings').insert({ ...body, user_id: user.id }).select().single()
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(data)
+}
+
+export async function DELETE(req: Request) {
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await req.json()
+  const { error } = await supabase.from('meetings').delete().eq('id', id).eq('user_id', user.id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
+}
